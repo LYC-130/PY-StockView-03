@@ -1,0 +1,10 @@
+{
+  "tabs": [
+    {
+      "name": "\u65b0\u5206\u9801",
+      "stocks": []
+    }
+  ],
+  "sort_column": "symbol",
+  "sort_reverse": true
+}

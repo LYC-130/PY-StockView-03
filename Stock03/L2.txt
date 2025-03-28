@@ -1,0 +1,4 @@
+^SPX
+GLD
+BTC-USD
+0050.TW
