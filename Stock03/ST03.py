@@ -14,6 +14,10 @@ REFRESH_INTERVAL = 50000  # 50秒刷新一次
 class PortfolioTab(ttk.Frame):
     def __init__(self, master, filename, pane_side, main_app):  # 正确定义4个参数
         super().__init__(master)
+        # 新增缓存相关属性
+        self.cache_valid = False
+        self.cached_items = []
+        
         self.main_app = main_app  # 新增主應用程式引用
         self.filename = filename
         self.pane_side = pane_side
@@ -28,16 +32,8 @@ class PortfolioTab(ttk.Frame):
         self.sort_reverse = True
         self.refresh_data()  # 首次加载时应用排序
 
-        self.cached_data = {}  # 新增数据缓存
-        self.data_lock = threading.Lock()  # 线程安全锁
 
-    @lru_cache(maxsize=32)  # 缓存最近读取的文件内容
-    def load_stocks(self):
-        """缓存优化的股票加载方法"""
-        if os.path.exists(self.filename):
-            with open(self.filename, 'r') as f:
-                return [line.strip() for line in f if line.strip()]
-        return []
+   
 
     def create_widgets(self):
         columns = ("symbol", "price", "change_percent")
@@ -138,6 +134,8 @@ class PortfolioTab(ttk.Frame):
             self.clipboard_append(symbol)
 
     def treeview_sort_column(self, col):
+        # 排序时标记缓存失效
+        self.cache_valid = False
         if self.sort_column == col:
             self.sort_reverse = not self.sort_reverse
         else:
@@ -153,6 +151,7 @@ class PortfolioTab(ttk.Frame):
                 self.tree.heading(c, text=heading_text.split(" ↑")[0].split(" ↓")[0])
         
         self.refresh_data()
+   
 
     def load_stocks(self):
         self.stocks = []
@@ -185,9 +184,8 @@ class PortfolioTab(ttk.Frame):
 
     def refresh_data(self, force=False):
         """优化后的数据刷新方法"""
-        if not force and self.cached_data.get('valid', False):
-            self._update_ui()
-            return
+        if not force and self.cache_valid:
+            return  # 使用缓存数据
 
         def fetch_data():
             with self.data_lock:
@@ -202,6 +200,9 @@ class PortfolioTab(ttk.Frame):
                     # ... 数据处理逻辑 ...
                 
                 self.after(0, self._update_ui)
+                # 在数据获取完成后更新缓存状态
+                self.cache_valid = True
+                self.cached_items = items  # 存储排序后的数据
 
         threading.Thread(target=fetch_data, daemon=True).start()
 
@@ -322,12 +323,31 @@ class DualPaneStockApp(tk.Tk):
         self.geometry("428x840")    #####
         self.panes = {"left": {"notebook": None, "tabs": {}}, "right": {"notebook": None, "tabs": {}}}
         self.create_widgets()
-        self.load_config()
-        self.after(REFRESH_INTERVAL, self.auto_refresh)
+
         # 配置黑色主题
         self.configure(background='black')
         self._setup_dark_theme()
         self.current_visible_tabs = {}  # 跟踪可见分页
+
+        # 延遲加載配置和自動刷新
+        self.after(100, self.initialize_app)
+
+    def initialize_app(self):
+        """延遲初始化非必要資源"""
+        self.load_config()
+        self.after(REFRESH_INTERVAL, self.auto_refresh)
+
+        
+
+    def add_existing_tab(self, side, filename, tab_name):
+        """空分頁初始化，延遲加載數據"""
+        new_tab = PortfolioTab(self.panes[side]["notebook"], filename, side, self)
+        self.panes[side]["notebook"].add(new_tab, text=tab_name)
+        self.panes[side]["tabs"][filename] = new_tab
+        new_tab.load_stocks(deferred=True)  # 新增延遲加載參數
+
+        
+
 
     def _setup_dark_theme(self):
         style = ttk.Style()
